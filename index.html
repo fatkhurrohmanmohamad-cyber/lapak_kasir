@@ -1,0 +1,1772 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#ea580c" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>WarungPOS - Kasir & Printer Thermal</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Inter & JetBrains Mono (untuk struk) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Dynamic PWA Manifest via Script -->
+  <link id="pwa-manifest" rel="manifest" href="" />
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#fff7ed',
+              100: '#ffedd5',
+              200: '#fed7aa',
+              500: '#f97316',
+              600: '#ea580c',
+              700: '#c2410c',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbar & Mobile Optimizations */
+    * {
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8fafc;
+      overscroll-behavior-y: contain;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* Thermal Receipt Paper Effect */
+    .receipt-paper {
+      font-family: 'JetBrains Mono', monospace;
+      background: #ffffff;
+      color: #0f172a;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      position: relative;
+    }
+    .receipt-paper::after {
+      content: "";
+      position: absolute;
+      bottom: -8px;
+      left: 0;
+      right: 0;
+      height: 8px;
+      background: linear-gradient(135deg, #ffffff 4px, transparent 0), linear-gradient(225deg, #ffffff 4px, transparent 0);
+      background-size: 8px 8px;
+    }
+
+    /* Print Media Query for 58mm Thermal Browser Fallback */
+    @media print {
+      body * {
+        visibility: hidden;
+      }
+      #printable-receipt-area, #printable-receipt-area * {
+        visibility: visible;
+      }
+      #printable-receipt-area {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 58mm;
+        margin: 0;
+        padding: 2mm;
+        box-shadow: none !important;
+        font-size: 11px;
+        line-height: 1.3;
+        background: white !important;
+        color: black !important;
+      }
+      @page {
+        size: 58mm auto;
+        margin: 0;
+      }
+    }
+  </style>
+</head>
+<body class="text-slate-800 antialiased select-none pb-20 md:pb-0">
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 w-[92%] max-w-md pointer-events-none"></div>
+
+  <!-- Custom Confirmation Modal (Replacement for confirm()) -->
+  <div id="confirm-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-[90] hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl transform transition-all">
+      <div class="flex items-center gap-3 text-amber-600 mb-3">
+        <div class="p-2.5 bg-amber-100 rounded-xl">
+          <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+        </div>
+        <h3 id="confirm-title" class="text-lg font-bold text-slate-900">Konfirmasi</h3>
+      </div>
+      <p id="confirm-message" class="text-sm text-slate-600 mb-6 leading-relaxed">Apakah Anda yakin ingin melanjutkan?</p>
+      <div class="flex gap-3">
+        <button id="confirm-cancel-btn" class="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 font-semibold text-slate-700 hover:bg-slate-50 active:scale-95 transition">Batal</button>
+        <button id="confirm-ok-btn" class="flex-1 py-2.5 px-4 rounded-xl bg-red-600 font-semibold text-white hover:bg-red-700 active:scale-95 transition shadow-sm">Ya, Lanjutkan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Header -->
+  <header class="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-xs">
+    <div class="max-w-7xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-2">
+      <!-- Brand / Store Name -->
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-white shadow-sm shrink-0">
+          <i data-lucide="utensils" class="w-5 h-5"></i>
+        </div>
+        <div class="min-w-0">
+          <h1 id="header-store-name" class="font-extrabold text-base sm:text-lg text-slate-900 truncate leading-tight">Warung Makan Berkah</h1>
+          <div class="flex items-center gap-1.5 text-xs text-slate-500">
+            <span id="sync-status-dot" class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+            <span id="sync-status-text" class="truncate">Siap • Mode Realtime</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Desktop Navigation Tabs -->
+      <nav class="hidden md:flex items-center bg-slate-100 p-1 rounded-xl">
+        <button onclick="switchTab('kasir')" data-tab="kasir" class="nav-btn-desktop px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 bg-white text-orange-600 shadow-xs">
+          <i data-lucide="shopping-bag" class="w-4 h-4"></i> Kasir
+        </button>
+        <button onclick="switchTab('rekap')" data-tab="rekap" class="nav-btn-desktop px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
+          <i data-lucide="bar-chart-3" class="w-4 h-4"></i> Riwayat & Rekap
+        </button>
+        <button onclick="switchTab('menu')" data-tab="menu" class="nav-btn-desktop px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
+          <i data-lucide="book-open" class="w-4 h-4"></i> Kelola Menu
+        </button>
+        <button onclick="switchTab('pengaturan')" data-tab="pengaturan" class="nav-btn-desktop px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 text-slate-600 hover:text-slate-900">
+          <i data-lucide="settings" class="w-4 h-4"></i> Pengaturan
+        </button>
+      </nav>
+
+      <!-- Bluetooth Thermal Printer Status & Connect Button -->
+      <div class="flex items-center gap-2 shrink-0">
+        <button id="btn-connect-printer" onclick="connectBluetoothPrinter()" class="flex items-center gap-2 px-3 py-2 rounded-xl border text-xs sm:text-sm font-semibold transition active:scale-95 bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100">
+          <span id="printer-dot" class="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+          <i data-lucide="printer" class="w-4 h-4"></i>
+          <span id="printer-status-label" class="hidden sm:inline">Hubungkan Printer</span>
+          <span id="printer-status-short" class="sm:hidden">Printer</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Area -->
+  <main class="max-w-7xl mx-auto px-3 sm:px-6 pt-4">
+
+    <!-- ==================== TAB 1: KASIR (POS) ==================== -->
+    <section id="tab-kasir" class="tab-content block">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        
+        <!-- Left Column: Menu Selection (7 cols on lg) -->
+        <div class="lg:col-span-7 flex flex-col gap-3">
+          <!-- Search & Category Filter Bar -->
+          <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs flex flex-col gap-3">
+            <div class="relative">
+              <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+              <input type="text" id="menu-search" oninput="renderMenuGrid()" placeholder="Cari nasi goreng, es teh, ayam..." class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:bg-white transition" />
+            </div>
+            
+            <!-- Category Pills -->
+            <div class="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5" id="category-filters">
+              <button onclick="setCategory('Semua')" data-cat="Semua" class="cat-btn px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap bg-orange-600 text-white shadow-xs transition">Semua</button>
+              <button onclick="setCategory('Makanan')" data-cat="Makanan" class="cat-btn px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap bg-slate-100 text-slate-600 hover:bg-slate-200 transition">🍛 Makanan</button>
+              <button onclick="setCategory('Minuman')" data-cat="Minuman" class="cat-btn px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap bg-slate-100 text-slate-600 hover:bg-slate-200 transition">🥤 Minuman</button>
+              <button onclick="setCategory('Tambahan')" data-cat="Tambahan" class="cat-btn px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap bg-slate-100 text-slate-600 hover:bg-slate-200 transition">🍢 Tambahan/Snack</button>
+            </div>
+          </div>
+
+          <!-- Menu Grid -->
+          <div id="pos-menu-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 pb-24 lg:pb-6">
+            <!-- Rendered via JS -->
+          </div>
+        </div>
+
+        <!-- Right Column / Mobile Drawer: Cart & Checkout (5 cols on lg) -->
+        <div id="cart-panel" class="fixed inset-x-0 bottom-16 z-20 lg:static lg:col-span-5 bg-white border-t lg:border border-slate-200 rounded-t-3xl lg:rounded-2xl shadow-2xl lg:shadow-xs transition-all duration-300 flex flex-col max-h-[82vh] lg:max-h-[calc(100vh-5.5rem)]">
+          
+          <!-- Mobile Cart Toggle Bar -->
+          <div onclick="toggleMobileCart()" class="lg:hidden px-4 py-3 flex items-center justify-between cursor-pointer bg-slate-900 text-white rounded-t-2xl">
+            <div class="flex items-center gap-2.5">
+              <div class="relative">
+                <i data-lucide="shopping-cart" class="w-5 h-5 text-orange-400"></i>
+                <span id="mobile-cart-badge" class="absolute -top-2 -right-2 bg-orange-600 text-white text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">0</span>
+              </div>
+              <span class="font-bold text-sm">Pesanan Aktif</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="mobile-cart-total" class="font-extrabold text-orange-400 text-sm">Rp 0</span>
+              <i id="mobile-cart-chevron" data-lucide="chevron-up" class="w-5 h-5 transition-transform"></i>
+            </div>
+          </div>
+
+          <!-- Cart Content (Collapsible on mobile, always open on desktop) -->
+          <div id="cart-body" class="hidden lg:flex flex-col flex-1 overflow-hidden">
+            <!-- Cart Header -->
+            <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <i data-lucide="receipt" class="w-4 h-4 text-orange-600"></i>
+                <h2 class="font-bold text-slate-900 text-sm sm:text-base">Keranjang Pesanan</h2>
+              </div>
+              <button onclick="clearCart()" class="text-xs font-semibold text-red-600 hover:text-red-700 px-2 py-1 rounded-lg hover:bg-red-50 transition">
+                Kosongkan
+              </button>
+            </div>
+
+            <!-- Customer / Table Info -->
+            <div class="px-4 py-2.5 bg-slate-50 border-b border-slate-100 grid grid-cols-2 gap-2">
+              <input type="text" id="order-customer" placeholder="Nama Pelanggan / Meja" class="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-orange-500" />
+              <select id="order-type" class="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-orange-500">
+                <option value="Makan di Tempat">🍽️ Makan di Tempat</option>
+                <option value="Bungkus / Takeaway">🛍️ Bungkus</option>
+              </select>
+            </div>
+
+            <!-- Cart Items List -->
+            <div id="cart-items-container" class="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2.5 min-h-[140px]">
+              <!-- Rendered via JS -->
+            </div>
+
+            <!-- Payment & Checkout Footer -->
+            <div class="p-3.5 sm:p-4 bg-slate-50 border-t border-slate-200 space-y-3">
+              <!-- Order Note -->
+              <input type="text" id="order-note" placeholder="Catatan pesanan (opsional, misal: sambal dipisah)..." class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-orange-500" />
+
+              <!-- Payment Method Selector -->
+              <div class="grid grid-cols-3 gap-1.5">
+                <button type="button" onclick="setPaymentMethod('Tunai')" data-pay="Tunai" class="pay-method-btn py-2 px-2 rounded-xl text-xs font-bold border border-orange-600 bg-orange-600 text-white transition">💵 Tunai</button>
+                <button type="button" onclick="setPaymentMethod('QRIS')" data-pay="QRIS" class="pay-method-btn py-2 px-2 rounded-xl text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition">📱 QRIS</button>
+                <button type="button" onclick="setPaymentMethod('Transfer')" data-pay="Transfer" class="pay-method-btn py-2 px-2 rounded-xl text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition">🏦 Transfer</button>
+              </div>
+
+              <!-- Cash Input (Visible only when Tunai is selected) -->
+              <div id="cash-payment-box" class="space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <label class="text-xs font-semibold text-slate-600">Uang Diterima:</label>
+                  <div class="relative w-40">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">Rp</span>
+                    <input type="number" id="cash-received" oninput="calculateChange()" placeholder="0" class="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-xl text-right font-bold text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                </div>
+                <!-- Quick Cash Buttons -->
+                <div class="flex gap-1.5 overflow-x-auto no-scrollbar">
+                  <button type="button" onclick="setExactCash()" class="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 text-[11px] font-bold whitespace-nowrap hover:bg-emerald-200">Uang Pas</button>
+                  <button type="button" onclick="addQuickCash(10000)" class="px-2.5 py-1 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-bold whitespace-nowrap hover:bg-slate-300">+10rb</button>
+                  <button type="button" onclick="addQuickCash(20000)" class="px-2.5 py-1 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-bold whitespace-nowrap hover:bg-slate-300">+20rb</button>
+                  <button type="button" onclick="addQuickCash(50000)" class="px-2.5 py-1 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-bold whitespace-nowrap hover:bg-slate-300">+50rb</button>
+                  <button type="button" onclick="addQuickCash(100000)" class="px-2.5 py-1 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-bold whitespace-nowrap hover:bg-slate-300">+100rb</button>
+                </div>
+              </div>
+
+              <!-- Totals Summary -->
+              <div class="pt-2 border-t border-slate-200 space-y-1">
+                <div class="flex justify-between items-center text-sm">
+                  <span class="font-semibold text-slate-600">Total Tagihan</span>
+                  <span id="cart-subtotal" class="font-extrabold text-lg text-slate-900">Rp 0</span>
+                </div>
+                <div id="change-row" class="flex justify-between items-center text-xs">
+                  <span class="font-medium text-slate-500">Kembalian</span>
+                  <span id="cart-change" class="font-bold text-emerald-600 text-sm">Rp 0</span>
+                </div>
+              </div>
+
+              <!-- Checkout Action Button -->
+              <button onclick="processCheckout()" class="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 text-white font-extrabold text-sm sm:text-base shadow-md active:scale-[0.98] transition flex items-center justify-center gap-2">
+                <i data-lucide="check-circle-2" class="w-5 h-5"></i>
+                <span>Bayar & Cetak Struk</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== TAB 2: RIWAYAT & REKAP PENJUALAN ==================== -->
+    <section id="tab-rekap" class="tab-content hidden space-y-5 pb-10">
+      <!-- Header & Filter -->
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-extrabold text-slate-900">Rekap Penjualan Realtime</h2>
+          <p class="text-xs text-slate-500">Pantau omzet harian dan unduh laporan transaksi</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <input type="date" id="filter-date" onchange="renderRecap()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          <button onclick="setFilterToday()" class="px-3 py-2 bg-orange-50 text-orange-700 border border-orange-200 rounded-xl text-xs font-bold hover:bg-orange-100 transition">Hari Ini</button>
+          <button onclick="setFilterAllDates()" class="px-3 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 transition">Semua</button>
+          <button onclick="exportToCSV()" class="px-3.5 py-2 bg-emerald-600 text-white rounded-xl text-xs sm:text-sm font-bold hover:bg-emerald-700 active:scale-95 transition flex items-center gap-1.5 shadow-xs">
+            <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Ekspor CSV
+          </button>
+        </div>
+      </div>
+
+      <!-- Summary Metric Cards -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+          <div class="flex items-center justify-between text-slate-500 mb-1">
+            <span class="text-xs font-semibold">Total Omzet</span>
+            <div class="p-1.5 bg-orange-100 text-orange-600 rounded-lg"><i data-lucide="wallet" class="w-4 h-4"></i></div>
+          </div>
+          <p id="stat-revenue" class="text-lg sm:text-2xl font-extrabold text-slate-900">Rp 0</p>
+          <p id="stat-period-label" class="text-[11px] text-slate-400 mt-0.5">Hari ini</p>
+        </div>
+
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+          <div class="flex items-center justify-between text-slate-500 mb-1">
+            <span class="text-xs font-semibold">Jumlah Transaksi</span>
+            <div class="p-1.5 bg-blue-100 text-blue-600 rounded-lg"><i data-lucide="shopping-bag" class="w-4 h-4"></i></div>
+          </div>
+          <p id="stat-tx-count" class="text-lg sm:text-2xl font-extrabold text-slate-900">0</p>
+          <p class="text-[11px] text-slate-400 mt-0.5">Struk tercetak</p>
+        </div>
+
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+          <div class="flex items-center justify-between text-slate-500 mb-1">
+            <span class="text-xs font-semibold">Tunai vs Non-Tunai</span>
+            <div class="p-1.5 bg-emerald-100 text-emerald-600 rounded-lg"><i data-lucide="credit-card" class="w-4 h-4"></i></div>
+          </div>
+          <p id="stat-cash-split" class="text-xs sm:text-sm font-bold text-slate-800 mt-1">Tunai: Rp 0</p>
+          <p id="stat-noncash-split" class="text-xs sm:text-sm font-bold text-indigo-600">Non-Tunai: Rp 0</p>
+        </div>
+
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
+          <div class="flex items-center justify-between text-slate-500 mb-1">
+            <span class="text-xs font-semibold">Menu Terlaris</span>
+            <div class="p-1.5 bg-amber-100 text-amber-600 rounded-lg"><i data-lucide="flame" class="w-4 h-4"></i></div>
+          </div>
+          <p id="stat-top-item" class="text-sm sm:text-base font-extrabold text-slate-900 truncate mt-1">-</p>
+          <p id="stat-top-qty" class="text-[11px] text-slate-500">0 porsi terjual</p>
+        </div>
+      </div>
+
+      <!-- Transaction History List -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div class="px-4 py-3.5 border-b border-slate-100 flex items-center justify-between">
+          <h3 class="font-bold text-slate-900 text-sm sm:text-base">Daftar Riwayat Transaksi</h3>
+          <span id="tx-list-count" class="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full">0 Transaksi</span>
+        </div>
+        <div id="transaction-history-list" class="divide-y divide-slate-100">
+          <!-- Rendered via JS -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 3: KELOLA MENU ==================== -->
+    <section id="tab-menu" class="tab-content hidden space-y-5 pb-10">
+      <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-extrabold text-slate-900">Kelola Daftar Menu</h2>
+          <p class="text-xs text-slate-500">Tambah, ubah harga, atau atur ketersediaan menu warung</p>
+        </div>
+        <button onclick="openMenuModal()" class="px-4 py-2.5 bg-orange-600 text-white rounded-xl text-sm font-bold hover:bg-orange-700 active:scale-95 transition flex items-center justify-center gap-2 shadow-xs">
+          <i data-lucide="plus" class="w-4 h-4"></i> Tambah Menu Baru
+        </button>
+      </div>
+
+      <div id="manage-menu-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <!-- Rendered via JS -->
+      </div>
+    </section>
+
+    <!-- ==================== TAB 4: PENGATURAN TOKO & PANDUAN APK ==================== -->
+    <section id="tab-pengaturan" class="tab-content hidden space-y-5 pb-10 max-w-3xl mx-auto">
+      
+      <!-- Store Profile Form -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+        <div class="flex items-center gap-2.5 border-b border-slate-100 pb-3">
+          <div class="p-2 bg-orange-100 text-orange-600 rounded-xl"><i data-lucide="store" class="w-5 h-5"></i></div>
+          <div>
+            <h2 class="font-extrabold text-slate-900 text-base">Identitas Warung & Header Struk</h2>
+            <p class="text-xs text-slate-500">Informasi ini akan dicetak pada bagian atas dan bawah struk thermal</p>
+          </div>
+        </div>
+
+        <form onsubmit="saveStoreSettings(event)" class="space-y-3.5">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Nama Warung / Restoran</label>
+            <input type="text" id="set-store-name" required class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Alamat Lengkap</label>
+            <input type="text" id="set-store-address" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Nomor Telepon / WhatsApp</label>
+              <input type="text" id="set-store-phone" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Lebar Kertas Printer Thermal</label>
+              <select id="set-printer-width" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500">
+                <option value="32">58mm (Standar Portable - 32 Karakter)</option>
+                <option value="48">80mm (Lebar Meja - 48 Karakter)</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Pesan Footer Struk</label>
+            <input type="text" id="set-store-footer" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <div class="pt-2 flex flex-wrap gap-2">
+            <button type="submit" class="px-5 py-2.5 bg-orange-600 text-white rounded-xl text-sm font-bold hover:bg-orange-700 active:scale-95 transition flex items-center gap-2">
+              <i data-lucide="save" class="w-4 h-4"></i> Simpan Pengaturan
+            </button>
+            <button type="button" onclick="testPrintThermal()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl text-sm font-bold hover:bg-slate-900 active:scale-95 transition flex items-center gap-2">
+              <i data-lucide="printer" class="w-4 h-4"></i> Tes Cetak Struk
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Optional Cloud Realtime Sync (Firebase Config) -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <div class="p-2 bg-emerald-100 text-emerald-600 rounded-xl"><i data-lucide="cloud" class="w-5 h-5"></i></div>
+            <div>
+              <h2 class="font-extrabold text-slate-900 text-base">Sinkronisasi Cloud Realtime (Opsional)</h2>
+              <p class="text-xs text-slate-500">Otomatis simpan lokal (offline-ready) + dukung sinkron antar-HP via Firebase</p>
+            </div>
+          </div>
+          <span id="cloud-badge" class="text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">Lokal Aktif</span>
+        </div>
+        <details class="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200">
+          <summary class="font-bold text-slate-800 cursor-pointer">Konfigurasi Firebase Firestore (Klik untuk buka)</summary>
+          <div class="mt-3 space-y-2">
+            <p>Tempel objek JSON <code class="bg-slate-200 px-1 rounded">firebaseConfig</code> dari Firebase Console Anda jika ingin menyinkronkan data rekap ke server cloud secara realtime:</p>
+            <textarea id="firebase-config-input" rows="4" placeholder='{"apiKey": "...", "authDomain": "...", "projectId": "..."}' class="w-full p-2.5 font-mono text-xs bg-white border border-slate-300 rounded-xl"></textarea>
+            <div class="flex gap-2">
+              <button type="button" onclick="saveFirebaseConfig()" class="px-3.5 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700">Hubungkan Cloud</button>
+              <button type="button" onclick="clearFirebaseConfig()" class="px-3.5 py-2 bg-slate-200 text-slate-700 rounded-lg font-bold hover:bg-slate-300">Reset ke Lokal</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <!-- Guide: Convert to Android APK -->
+      <div class="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 rounded-2xl shadow-md space-y-3">
+        <div class="flex items-center gap-2.5">
+          <div class="p-2 bg-orange-500/20 text-orange-400 rounded-xl"><i data-lucide="smartphone" class="w-5 h-5"></i></div>
+          <div>
+            <h2 class="font-extrabold text-base">Cara Mengubah Aplikasi Ini Menjadi APK Android</h2>
+            <p class="text-xs text-slate-300">Aplikasi ini sudah dilengkapi Manifest PWA & Web Bluetooth ESC/POS</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-slate-200 pt-1">
+          <div class="bg-white/10 p-3.5 rounded-xl space-y-1.5">
+            <p class="font-bold text-orange-300">Cara 1: Langsung Install PWA (Tanpa Build)</p>
+            <p class="leading-relaxed">1. Buka file ini di Google Chrome Android (via hosting HTTPS atau GitHub Pages).</p>
+            <p class="leading-relaxed">2. Ketuk menu titik tiga Chrome <b>(⋮)</b> → pilih <b>"Tambahkan ke Layar Utama" / "Install App"</b>.</p>
+            <p class="leading-relaxed">3. Aplikasi akan muncul sebagai ikon mandiri layar penuh dan mendukung Bluetooth Printer.</p>
+          </div>
+          <div class="bg-white/10 p-3.5 rounded-xl space-y-1.5">
+            <p class="font-bold text-emerald-300">Cara 2: Kompilasi ke File .APK (Capacitor)</p>
+            <p class="leading-relaxed">1. Simpan file ini sebagai <code class="bg-black/40 px-1 rounded">www/index.html</code>.</p>
+            <p class="leading-relaxed">2. Jalankan perintah terminal: <code class="bg-black/40 px-1 rounded">npm init -y && npm i @capacitor/core @capacitor/cli @capacitor/android</code></p>
+            <p class="leading-relaxed">3. Jalankan <code class="bg-black/40 px-1 rounded">npx cap init WarungPOS com.warung.pos --web-dir=www && npx cap add android && npx cap open android</code> lalu Build APK di Android Studio (tambahkan izin <code class="bg-black/40 px-1 rounded">BLUETOOTH_CONNECT</code> & <code class="bg-black/40 px-1 rounded">BLUETOOTH_SCAN</code> di AndroidManifest.xml).</p>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Mobile Bottom Navigation Bar -->
+  <nav class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-30 h-16 grid grid-cols-4 px-1">
+    <button onclick="switchTab('kasir')" data-tab="kasir" class="nav-btn-mobile flex flex-col items-center justify-center gap-1 text-orange-600 font-bold text-[11px]">
+      <i data-lucide="shopping-bag" class="w-5 h-5"></i>
+      <span>Kasir</span>
+    </button>
+    <button onclick="switchTab('rekap')" data-tab="rekap" class="nav-btn-mobile flex flex-col items-center justify-center gap-1 text-slate-500 font-medium text-[11px]">
+      <i data-lucide="bar-chart-3" class="w-5 h-5"></i>
+      <span>Rekap</span>
+    </button>
+    <button onclick="switchTab('menu')" data-tab="menu" class="nav-btn-mobile flex flex-col items-center justify-center gap-1 text-slate-500 font-medium text-[11px]">
+      <i data-lucide="book-open" class="w-5 h-5"></i>
+      <span>Menu</span>
+    </button>
+    <button onclick="switchTab('pengaturan')" data-tab="pengaturan" class="nav-btn-mobile flex flex-col items-center justify-center gap-1 text-slate-500 font-medium text-[11px]">
+      <i data-lucide="settings" class="w-5 h-5"></i>
+      <span>Pengaturan</span>
+    </button>
+  </nav>
+
+  <!-- ==================== MODAL: ADD / EDIT MENU ==================== -->
+  <div id="menu-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+        <h3 id="menu-modal-title" class="text-lg font-extrabold text-slate-900">Tambah Menu Baru</h3>
+        <button onclick="closeMenuModal()" class="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><i data-lucide="x" class="w-5 h-5"></i></button>
+      </div>
+      <form onsubmit="saveMenuItem(event)" class="space-y-3.5">
+        <input type="hidden" id="edit-menu-id" />
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Nama Menu</label>
+          <input type="text" id="menu-name-input" required placeholder="Contoh: Nasi Goreng Ayam" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Harga (Rp)</label>
+            <input type="number" id="menu-price-input" required min="0" step="500" placeholder="15000" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Kategori</label>
+            <select id="menu-cat-input" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
+              <option value="Makanan">Makanan</option>
+              <option value="Minuman">Minuman</option>
+              <option value="Tambahan">Tambahan</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Ikon Emoji</label>
+            <input type="text" id="menu-emoji-input" maxlength="4" value="🍛" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-center text-lg focus:outline-none focus:ring-2 focus:ring-orange-500" />
+          </div>
+          <div class="flex items-center pt-5">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="menu-avail-input" checked class="w-4 h-4 accent-orange-600 rounded" />
+              <span class="text-xs font-bold text-slate-700">Stok Tersedia</span>
+            </label>
+          </div>
+        </div>
+        <div class="pt-3 flex gap-2">
+          <button type="button" onclick="closeMenuModal()" class="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50">Batal</button>
+          <button type="submit" class="flex-1 py-2.5 rounded-xl bg-orange-600 text-white text-sm font-bold hover:bg-orange-700 shadow-sm">Simpan Menu</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: THERMAL RECEIPT PREVIEW & PRINT ==================== -->
+  <div id="receipt-modal" class="fixed inset-0 bg-slate-900/75 backdrop-blur-xs z-50 hidden items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-slate-100 rounded-3xl max-w-sm w-full p-5 shadow-2xl my-auto space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2 text-emerald-700">
+          <i data-lucide="check-circle" class="w-5 h-5"></i>
+          <h3 class="font-extrabold text-base text-slate-900">Struk Transaksi</h3>
+        </div>
+        <button onclick="closeReceiptModal()" class="p-1.5 rounded-full bg-white text-slate-500 hover:text-slate-800 shadow-2xs">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Thermal 58mm Paper Visual Preview -->
+      <div class="max-h-[52vh] overflow-y-auto px-2 py-2 flex justify-center">
+        <div id="printable-receipt-area" class="receipt-paper w-[260px] p-4 text-[11px] leading-snug">
+          <!-- Receipt content injected dynamically -->
+        </div>
+      </div>
+
+      <!-- Print Action Buttons -->
+      <div class="space-y-2 pt-1">
+        <button onclick="printActiveReceiptBluetooth()" class="w-full py-3 px-4 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-extrabold text-sm shadow-md active:scale-95 transition flex items-center justify-center gap-2">
+          <i data-lucide="bluetooth" class="w-4 h-4"></i>
+          <span>Cetak Printer Thermal (Bluetooth)</span>
+        </button>
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="window.print()" class="py-2.5 px-3 rounded-xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-bold text-xs active:scale-95 transition flex items-center justify-center gap-1.5">
+            <i data-lucide="printer" class="w-3.5 h-3.5"></i> Cetak Browser / PDF
+          </button>
+          <button onclick="closeReceiptModal()" class="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs active:scale-95 transition">
+            Selesai / Pesanan Baru
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK Module (Loaded dynamically if user configures cloud sync) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    window.FirebaseSDK = { initializeApp, getAuth, signInAnonymously, getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot };
+  </script>
+
+  <script>
+    // =========================================================================
+    // 1. PWA MANIFEST & SERVICE WORKER REGISTRATION (SELF-CONTAINED)
+    // =========================================================================
+    (function setupPWA() {
+      const manifest = {
+        name: "WarungPOS - Kasir & Printer Thermal",
+        short_name: "WarungPOS",
+        description: "Aplikasi Kasir Warung Makan dengan Cetak Printer Thermal & Rekap Realtime",
+        start_url: "./",
+        display: "standalone",
+        background_color: "#f8fafc",
+        theme_color: "#ea580c",
+        icons: [
+          {
+            src: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23ea580c'/><text x='50' y='67' font-size='54' text-anchor='middle' fill='white'>🍛</text></svg>",
+            sizes: "192x192",
+            type: "image/svg+xml"
+          }
+        ]
+      };
+      const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+      document.getElementById('pwa-manifest').setAttribute('href', URL.createObjectURL(blob));
+    })();
+
+    // =========================================================================
+    // 2. STATE MANAGEMENT & DEFAULT PRESET DATA
+    // =========================================================================
+    const STORAGE_KEYS = {
+      MENU: 'warungpos_menu_v1',
+      TRANSACTIONS: 'warungpos_tx_v1',
+      SETTINGS: 'warungpos_settings_v1',
+      FIREBASE: 'warungpos_firebase_v1'
+    };
+
+    const DEFAULT_MENUS = [
+      { id: 'm1', name: 'Nasi Goreng Spesial', price: 18000, category: 'Makanan', emoji: '🍛', available: true },
+      { id: 'm2', name: 'Ayam Bakar Madu + Nasi', price: 22000, category: 'Makanan', emoji: '🍗', available: true },
+      { id: 'm3', name: 'Soto Ayam Lamongan', price: 15000, category: 'Makanan', emoji: '🍲', available: true },
+      { id: 'm4', name: 'Mie Goreng Jawa', price: 16000, category: 'Makanan', emoji: '🍜', available: true },
+      { id: 'm5', name: 'Nasi Putih', price: 5000, category: 'Makanan', emoji: '🍚', available: true },
+      { id: 'm6', name: 'Es Teh Manis', price: 4000, category: 'Minuman', emoji: '🧋', available: true },
+      { id: 'm7', name: 'Es Jeruk Peras', price: 6000, category: 'Minuman', emoji: '🍊', available: true },
+      { id: 'm8', name: 'Kopi Hitam Tubruk', price: 5000, category: 'Minuman', emoji: '☕', available: true },
+      { id: 'm9', name: 'Tahu / Tempe Goreng', price: 3000, category: 'Tambahan', emoji: '🍢', available: true },
+      { id: 'm10', name: 'Kerupuk Kaleng', price: 2000, category: 'Tambahan', emoji: '🍘', available: true }
+    ];
+
+    const DEFAULT_SETTINGS = {
+      storeName: 'Warung Makan Berkah',
+      address: 'Jl. Merdeka No. 45, Kota Anda',
+      phone: '0812-3456-7890',
+      footer: 'Terima kasih atas kunjungan Anda!',
+      printerWidth: 32 // 32 chars for 58mm, 48 chars for 80mm
+    };
+
+    let appState = {
+      menus: [],
+      transactions: [],
+      settings: { ...DEFAULT_SETTINGS },
+      cart: [],
+      selectedCategory: 'Semua',
+      paymentMethod: 'Tunai',
+      mobileCartOpen: false,
+      activeReceiptTx: null,
+      // Web Bluetooth State
+      btDevice: null,
+      btCharacteristic: null,
+      // Firebase Cloud Sync State
+      db: null,
+      cloudEnabled: false
+    };
+
+    // =========================================================================
+    // 3. INITIALIZATION & STORAGE PERSISTENCE
+    // =========================================================================
+    function initApp() {
+      // Load Settings
+      const savedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+      if (savedSettings) {
+        appState.settings = { ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) };
+      }
+
+      // Load Menus
+      const savedMenus = localStorage.getItem(STORAGE_KEYS.MENU);
+      if (savedMenus) {
+        appState.menus = JSON.parse(savedMenus);
+      } else {
+        appState.menus = [...DEFAULT_MENUS];
+        saveMenusToLocal();
+      }
+
+      // Load Transactions
+      const savedTx = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
+      if (savedTx) {
+        appState.transactions = JSON.parse(savedTx);
+      }
+
+      // Set default date filter to today (YYYY-MM-DD in local timezone)
+      const todayStr = getLocalDateString(new Date());
+      document.getElementById('filter-date').value = todayStr;
+
+      // Apply settings to UI
+      applySettingsToUI();
+
+      // Render Initial Views
+      renderMenuGrid();
+      renderCart();
+      renderManageMenu();
+      renderRecap();
+
+      // Initialize Optional Firebase if configured
+      const savedFb = localStorage.getItem(STORAGE_KEYS.FIREBASE);
+      if (savedFb) {
+        document.getElementById('firebase-config-input').value = savedFb;
+        setTimeout(() => initCloudSync(JSON.parse(savedFb)), 500);
+      }
+
+      lucide.createIcons();
+    }
+
+    function saveMenusToLocal() {
+      localStorage.setItem(STORAGE_KEYS.MENU, JSON.stringify(appState.menus));
+    }
+
+    function saveTransactionsToLocal() {
+      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(appState.transactions));
+    }
+
+    // =========================================================================
+    // 4. OPTIONAL CLOUD SYNC (FIREBASE FIRESTORE)
+    // =========================================================================
+    async function initCloudSync(configObj) {
+      try {
+        if (!window.FirebaseSDK) return;
+        const { initializeApp, getAuth, signInAnonymously, getFirestore, collection, onSnapshot } = window.FirebaseSDK;
+        const app = initializeApp(configObj);
+        const auth = getAuth(app);
+        await signInAnonymously(auth);
+        const db = getFirestore(app);
+        appState.db = db;
+        appState.cloudEnabled = true;
+
+        document.getElementById('cloud-badge').textContent = 'Cloud Terhubung';
+        document.getElementById('cloud-badge').className = 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700';
+        document.getElementById('sync-status-text').textContent = 'Cloud Realtime Aktif';
+
+        // Realtime listener for transactions
+        const txCol = collection(db, 'warung_transactions');
+        onSnapshot(txCol, (snapshot) => {
+          const cloudTxs = [];
+          snapshot.forEach(docSnap => cloudTxs.push(docSnap.data()));
+          if (cloudTxs.length > 0) {
+            cloudTxs.sort((a, b) => b.timestamp - a.timestamp);
+            appState.transactions = cloudTxs;
+            saveTransactionsToLocal();
+            renderRecap();
+          }
+        }, (err) => {
+          console.warn('Cloud sync read warning:', err);
+        });
+
+        showToast('Sinkronisasi Cloud Firestore aktif!', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('Gagal menghubungkan Firebase. Cek format JSON config.', 'error');
+      }
+    }
+
+    function saveFirebaseConfig() {
+      const raw = document.getElementById('firebase-config-input').value.trim();
+      try {
+        const parsed = JSON.parse(raw);
+        localStorage.setItem(STORAGE_KEYS.FIREBASE, JSON.stringify(parsed));
+        initCloudSync(parsed);
+      } catch (e) {
+        showToast('Format JSON Firebase Config tidak valid!', 'error');
+      }
+    }
+
+    function clearFirebaseConfig() {
+      localStorage.removeItem(STORAGE_KEYS.FIREBASE);
+      document.getElementById('firebase-config-input').value = '';
+      appState.cloudEnabled = false;
+      appState.db = null;
+      document.getElementById('cloud-badge').textContent = 'Lokal Aktif';
+      document.getElementById('cloud-badge').className = 'text-[11px] font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600';
+      document.getElementById('sync-status-text').textContent = 'Siap • Mode Lokal';
+      showToast('Kembali ke penyimpanan lokal.', 'info');
+    }
+
+    async function syncTransactionToCloud(tx) {
+      if (!appState.cloudEnabled || !appState.db || !window.FirebaseSDK) return;
+      try {
+        const { doc, setDoc } = window.FirebaseSDK;
+        await setDoc(doc(appState.db, 'warung_transactions', tx.id), tx);
+      } catch (e) {
+        console.warn('Gagal unggah transaksi ke cloud:', e);
+      }
+    }
+
+    async function deleteTransactionFromCloud(txId) {
+      if (!appState.cloudEnabled || !appState.db || !window.FirebaseSDK) return;
+      try {
+        const { doc, deleteDoc } = window.FirebaseSDK;
+        await deleteDoc(doc(appState.db, 'warung_transactions', txId));
+      } catch (e) {
+        console.warn('Gagal hapus transaksi di cloud:', e);
+      }
+    }
+
+    // =========================================================================
+    // 5. NAVIGATION & UI HELPERS
+    // =========================================================================
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+
+      // Update Desktop Nav
+      document.querySelectorAll('.nav-btn-desktop').forEach(btn => {
+        if (btn.dataset.tab === tabName) {
+          btn.className = 'nav-btn-desktop px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 bg-white text-orange-600 shadow-xs';
+        } else {
+          btn.className = 'nav-btn-desktop px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 text-slate-600 hover:text-slate-900';
+        }
+      });
+
+      // Update Mobile Nav
+      document.querySelectorAll('.nav-btn-mobile').forEach(btn => {
+        if (btn.dataset.tab === tabName) {
+          btn.className = 'nav-btn-mobile flex flex-col items-center justify-center gap-1 text-orange-600 font-bold text-[11px]';
+        } else {
+          btn.className = 'nav-btn-mobile flex flex-col items-center justify-center gap-1 text-slate-500 font-medium text-[11px]';
+        }
+      });
+
+      if (tabName === 'rekap') renderRecap();
+      if (tabName === 'menu') renderManageMenu();
+      lucide.createIcons();
+    }
+
+    function formatRupiah(num) {
+      return 'Rp ' + Number(num || 0).toLocaleString('id-ID');
+    }
+
+    function getLocalDateString(dateObj) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'bg-emerald-600 text-white',
+        error: 'bg-red-600 text-white',
+        info: 'bg-slate-800 text-white'
+      };
+      toast.className = `${colors[type] || colors.info} px-4 py-3 rounded-xl shadow-lg text-xs sm:text-sm font-semibold flex items-center justify-between gap-3 transition-all duration-300 transform translate-y-0 opacity-100`;
+      toast.innerHTML = `<span>${message}</span>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(-10px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    function customConfirm(title, message) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('confirm-modal');
+        document.getElementById('confirm-title').textContent = title;
+        document.getElementById('confirm-message').textContent = message;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+
+        const cleanup = (result) => {
+          modal.classList.add('hidden');
+          modal.classList.remove('flex');
+          resolve(result);
+        };
+
+        document.getElementById('confirm-ok-btn').onclick = () => cleanup(true);
+        document.getElementById('confirm-cancel-btn').onclick = () => cleanup(false);
+      });
+    }
+
+    // =========================================================================
+    // 6. POS MENU & CART LOGIC
+    // =========================================================================
+    function setCategory(cat) {
+      appState.selectedCategory = cat;
+      document.querySelectorAll('.cat-btn').forEach(btn => {
+        if (btn.dataset.cat === cat) {
+          btn.className = 'cat-btn px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap bg-orange-600 text-white shadow-xs transition';
+        } else {
+          btn.className = 'cat-btn px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap bg-slate-100 text-slate-600 hover:bg-slate-200 transition';
+        }
+      });
+      renderMenuGrid();
+    }
+
+    function renderMenuGrid() {
+      const grid = document.getElementById('pos-menu-grid');
+      const search = document.getElementById('menu-search').value.toLowerCase().trim();
+
+      const filtered = appState.menus.filter(item => {
+        const matchCat = appState.selectedCategory === 'Semua' || item.category === appState.selectedCategory;
+        const matchSearch = item.name.toLowerCase().includes(search);
+        return matchCat && matchSearch;
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = `
+          <div class="col-span-full bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-400">
+            <p class="text-sm font-semibold">Menu tidak ditemukan</p>
+            <p class="text-xs mt-1">Coba kata kunci lain atau tambah menu baru di tab Menu.</p>
+          </div>
+        `;
+        return;
+      }
+
+      grid.innerHTML = filtered.map(item => {
+        const inCart = appState.cart.find(c => c.id === item.id);
+        const qtyBadge = inCart ? `<span class="absolute top-2 right-2 bg-orange-600 text-white text-xs font-extrabold w-6 h-6 rounded-full flex items-center justify-center shadow-sm">${inCart.qty}</span>` : '';
+        const disabledClass = !item.available ? 'opacity-50 grayscale pointer-events-none' : 'hover:border-orange-400 active:scale-[0.97] cursor-pointer';
+
+        return `
+          <div onclick="addToCart('${item.id}')" class="relative bg-white p-3 rounded-2xl border ${inCart ? 'border-orange-500 ring-1 ring-orange-500' : 'border-slate-200'} shadow-2xs transition flex flex-col justify-between ${disabledClass}">
+            ${qtyBadge}
+            <div>
+              <div class="w-11 h-11 rounded-xl bg-orange-50 flex items-center justify-center text-2xl mb-2.5">
+                ${item.emoji || '🍽️'}
+              </div>
+              <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">${item.category}</span>
+              <h3 class="font-bold text-slate-900 text-xs sm:text-sm leading-snug line-clamp-2 mt-0.5">${item.name}</h3>
+            </div>
+            <div class="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between">
+              <span class="font-extrabold text-orange-600 text-xs sm:text-sm">${formatRupiah(item.price)}</span>
+              ${!item.available ? '<span class="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">Habis</span>' : '<span class="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center text-sm font-bold">+</span>'}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function addToCart(menuId) {
+      const menu = appState.menus.find(m => m.id === menuId);
+      if (!menu || !menu.available) return;
+
+      const existing = appState.cart.find(c => c.id === menuId);
+      if (existing) {
+        existing.qty += 1;
+      } else {
+        appState.cart.push({
+          id: menu.id,
+          name: menu.name,
+          price: menu.price,
+          qty: 1,
+          note: ''
+        });
+      }
+      renderMenuGrid();
+      renderCart();
+    }
+
+    function updateCartQty(menuId, delta) {
+      const idx = appState.cart.findIndex(c => c.id === menuId);
+      if (idx === -1) return;
+
+      appState.cart[idx].qty += delta;
+      if (appState.cart[idx].qty <= 0) {
+        appState.cart.splice(idx, 1);
+      }
+      renderMenuGrid();
+      renderCart();
+    }
+
+    function updateCartItemNote(menuId, noteVal) {
+      const item = appState.cart.find(c => c.id === menuId);
+      if (item) item.note = noteVal;
+    }
+
+    async function clearCart() {
+      if (appState.cart.length === 0) return;
+      const ok = await customConfirm('Kosongkan Keranjang', 'Hapus semua item dari pesanan saat ini?');
+      if (!ok) return;
+      appState.cart = [];
+      document.getElementById('cash-received').value = '';
+      document.getElementById('order-note').value = '';
+      renderMenuGrid();
+      renderCart();
+    }
+
+    function toggleMobileCart() {
+      appState.mobileCartOpen = !appState.mobileCartOpen;
+      const body = document.getElementById('cart-body');
+      const chevron = document.getElementById('mobile-cart-chevron');
+      if (appState.mobileCartOpen) {
+        body.classList.remove('hidden');
+        body.classList.add('flex');
+        chevron.style.transform = 'rotate(180deg)';
+      } else {
+        body.classList.add('hidden');
+        body.classList.remove('flex');
+        chevron.style.transform = 'rotate(0deg)';
+      }
+    }
+
+    function setPaymentMethod(method) {
+      appState.paymentMethod = method;
+      document.querySelectorAll('.pay-method-btn').forEach(btn => {
+        if (btn.dataset.pay === method) {
+          btn.className = 'pay-method-btn py-2 px-2 rounded-xl text-xs font-bold border border-orange-600 bg-orange-600 text-white transition';
+        } else {
+          btn.className = 'pay-method-btn py-2 px-2 rounded-xl text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 transition';
+        }
+      });
+
+      const cashBox = document.getElementById('cash-payment-box');
+      const changeRow = document.getElementById('change-row');
+      if (method === 'Tunai') {
+        cashBox.classList.remove('hidden');
+        changeRow.classList.remove('hidden');
+      } else {
+        cashBox.classList.add('hidden');
+        changeRow.classList.add('hidden');
+      }
+      calculateChange();
+    }
+
+    function getCartTotal() {
+      return appState.cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+    }
+
+    function setExactCash() {
+      document.getElementById('cash-received').value = getCartTotal();
+      calculateChange();
+    }
+
+    function addQuickCash(amount) {
+      const current = Number(document.getElementById('cash-received').value || 0);
+      document.getElementById('cash-received').value = current + amount;
+      calculateChange();
+    }
+
+    function calculateChange() {
+      const total = getCartTotal();
+      const cash = Number(document.getElementById('cash-received').value || 0);
+      const change = cash - total;
+      const changeEl = document.getElementById('cart-change');
+
+      if (appState.paymentMethod !== 'Tunai') {
+        changeEl.textContent = 'Rp 0';
+        return;
+      }
+
+      if (cash === 0) {
+        changeEl.textContent = 'Rp 0';
+        changeEl.className = 'font-bold text-slate-500 text-sm';
+      } else if (change < 0) {
+        changeEl.textContent = `Kurang ${formatRupiah(Math.abs(change))}`;
+        changeEl.className = 'font-bold text-red-600 text-sm';
+      } else {
+        changeEl.textContent = formatRupiah(change);
+        changeEl.className = 'font-bold text-emerald-600 text-sm';
+      }
+    }
+
+    function renderCart() {
+      const container = document.getElementById('cart-items-container');
+      const total = getCartTotal();
+      const totalQty = appState.cart.reduce((s, i) => s + i.qty, 0);
+
+      // Update mobile floating header
+      document.getElementById('mobile-cart-badge').textContent = totalQty;
+      document.getElementById('mobile-cart-total').textContent = formatRupiah(total);
+      document.getElementById('cart-subtotal').textContent = formatRupiah(total);
+
+      if (appState.cart.length === 0) {
+        container.innerHTML = `
+          <div class="h-full flex flex-col items-center justify-center text-center py-8 text-slate-400">
+            <i data-lucide="shopping-basket" class="w-10 h-10 mb-2 opacity-40"></i>
+            <p class="text-xs font-semibold">Keranjang masih kosong</p>
+            <p class="text-[11px]">Ketuk menu di samping untuk menambah pesanan</p>
+          </div>
+        `;
+        calculateChange();
+        lucide.createIcons();
+        return;
+      }
+
+      container.innerHTML = appState.cart.map(item => `
+        <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 space-y-2">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <h4 class="font-bold text-slate-900 text-xs sm:text-sm truncate">${item.name}</h4>
+              <p class="text-xs text-slate-500">${formatRupiah(item.price)} x ${item.qty} = <span class="font-bold text-slate-800">${formatRupiah(item.price * item.qty)}</span></p>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0 bg-white border border-slate-200 rounded-lg p-0.5">
+              <button onclick="updateCartQty('${item.id}', -1)" class="w-6 h-6 rounded-md hover:bg-slate-100 text-slate-700 font-bold flex items-center justify-center">-</button>
+              <span class="w-5 text-center text-xs font-extrabold text-slate-900">${item.qty}</span>
+              <button onclick="updateCartQty('${item.id}', 1)" class="w-6 h-6 rounded-md bg-orange-100 text-orange-700 font-bold flex items-center justify-center">+</button>
+            </div>
+          </div>
+          <input type="text" value="${item.note || ''}" onchange="updateCartItemNote('${item.id}', this.value)" placeholder="Catatan item (misal: pedas, tanpa bawang)..." class="w-full px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-[11px] text-slate-600 focus:outline-none focus:border-orange-400" />
+        </div>
+      `).join('');
+
+      calculateChange();
+      lucide.createIcons();
+    }
+
+    // =========================================================================
+    // 7. CHECKOUT & TRANSACTION RECORDING
+    // =========================================================================
+    function processCheckout() {
+      if (appState.cart.length === 0) {
+        showToast('Keranjang masih kosong! Pilih menu terlebih dahulu.', 'error');
+        return;
+      }
+
+      const total = getCartTotal();
+      let cashReceived = total;
+      let changeAmount = 0;
+
+      if (appState.paymentMethod === 'Tunai') {
+        const inputCash = Number(document.getElementById('cash-received').value || 0);
+        if (inputCash > 0 && inputCash < total) {
+          showToast('Nominal uang tunai kurang dari total tagihan!', 'error');
+          return;
+        }
+        cashReceived = inputCash > 0 ? inputCash : total;
+        changeAmount = cashReceived - total;
+      }
+
+      const now = new Date();
+      const txId = 'TRX-' + now.getFullYear().toString().slice(-2) +
+                   String(now.getMonth() + 1).padStart(2, '0') +
+                   String(now.getDate()).padStart(2, '0') + '-' +
+                   Math.floor(1000 + Math.random() * 9000);
+
+      const newTx = {
+        id: txId,
+        timestamp: now.getTime(),
+        dateStr: getLocalDateString(now),
+        timeStr: now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        customer: document.getElementById('order-customer').value.trim() || 'Pelanggan Umum',
+        orderType: document.getElementById('order-type').value,
+        note: document.getElementById('order-note').value.trim(),
+        items: JSON.parse(JSON.stringify(appState.cart)),
+        total: total,
+        paymentMethod: appState.paymentMethod,
+        cashReceived: cashReceived,
+        change: changeAmount
+      };
+
+      // Save to state, localStorage & optional Cloud
+      appState.transactions.unshift(newTx);
+      saveTransactionsToLocal();
+      syncTransactionToCloud(newTx);
+
+      // Reset Cart
+      appState.cart = [];
+      document.getElementById('order-customer').value = '';
+      document.getElementById('order-note').value = '';
+      document.getElementById('cash-received').value = '';
+      if (appState.mobileCartOpen) toggleMobileCart();
+
+      renderMenuGrid();
+      renderCart();
+      renderRecap();
+
+      // Open Receipt Preview Modal
+      openReceiptModal(newTx);
+      showToast('Transaksi berhasil disimpan!', 'success');
+    }
+
+    // =========================================================================
+    // 8. WEB BLUETOOTH THERMAL PRINTER (ESC/POS) & RECEIPT RENDERING
+    // =========================================================================
+    async function connectBluetoothPrinter() {
+      if (!navigator.bluetooth) {
+        showToast('Browser ini tidak mendukung Web Bluetooth. Gunakan Chrome Android atau Cetak Browser.', 'error');
+        return;
+      }
+
+      try {
+        showToast('Mencari printer Bluetooth thermal...', 'info');
+        // Standard Serial Port / Thermal Printer UUIDs
+        const printerServices = [
+          '000018f0-0000-1000-8000-00805f9b34fb',
+          'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+          '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+        ];
+
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: printerServices
+        });
+
+        const server = await device.gatt.connect();
+        let targetChar = null;
+
+        // Discover writable characteristic across supported thermal services
+        for (const uuid of printerServices) {
+          try {
+            const service = await server.getPrimaryService(uuid);
+            const chars = await service.getCharacteristics();
+            for (const c of chars) {
+              if (c.properties.write || c.properties.writeWithoutResponse) {
+                targetChar = c;
+                break;
+              }
+            }
+            if (targetChar) break;
+          } catch (e) {
+            // Try next service UUID
+          }
+        }
+
+        if (!targetChar) {
+          throw new Error('Karakteristik cetak ESC/POS tidak ditemukan pada perangkat ini.');
+        }
+
+        appState.btDevice = device;
+        appState.btCharacteristic = targetChar;
+
+        device.addEventListener('gattserverdisconnected', () => {
+          appState.btCharacteristic = null;
+          updatePrinterUI(false);
+          showToast('Koneksi printer Bluetooth terputus.', 'error');
+        });
+
+        updatePrinterUI(true, device.name || 'Thermal Printer');
+        showToast(`Terhubung ke ${device.name || 'Printer Thermal'}!`, 'success');
+      } catch (err) {
+        console.error('Bluetooth error:', err);
+        if (err.name !== 'NotFoundError') {
+          showToast('Gagal terhubung ke printer: ' + err.message, 'error');
+        }
+      }
+    }
+
+    function updatePrinterUI(connected, name = '') {
+      const dot = document.getElementById('printer-dot');
+      const label = document.getElementById('printer-status-label');
+      const shortLabel = document.getElementById('printer-status-short');
+      const btn = document.getElementById('btn-connect-printer');
+
+      if (connected) {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
+        label.textContent = name.slice(0, 16);
+        shortLabel.textContent = 'Aktif';
+        btn.className = 'flex items-center gap-2 px-3 py-2 rounded-xl border text-xs sm:text-sm font-semibold transition bg-emerald-50 border-emerald-200 text-emerald-800';
+      } else {
+        dot.className = 'w-2.5 h-2.5 rounded-full bg-slate-400';
+        label.textContent = 'Hubungkan Printer';
+        shortLabel.textContent = 'Printer';
+        btn.className = 'flex items-center gap-2 px-3 py-2 rounded-xl border text-xs sm:text-sm font-semibold transition bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100';
+      }
+    }
+
+    // Build ESC/POS Byte Buffer for 58mm / 80mm Thermal Printers
+    function buildEscPosReceipt(tx) {
+      const width = Number(appState.settings.printerWidth) || 32;
+      const encoder = new TextEncoder();
+      const chunks = [];
+
+      const pushBytes = (...bytes) => chunks.push(new Uint8Array(bytes));
+      const pushText = (str) => chunks.push(encoder.encode(str + '\n'));
+
+      const lineDivider = '-'.repeat(width);
+      const formatRow = (left, right) => {
+        const spaceLen = Math.max(1, width - left.length - right.length);
+        return left + ' '.repeat(spaceLen) + right;
+      };
+
+      // Initialize Printer: ESC @
+      pushBytes(0x1B, 0x40);
+
+      // Center Align & Bold Store Name: ESC a 1, ESC E 1
+      pushBytes(0x1B, 0x61, 0x01);
+      pushBytes(0x1B, 0x45, 0x01);
+      pushText(appState.settings.storeName.toUpperCase());
+      pushBytes(0x1B, 0x45, 0x00);
+
+      if (appState.settings.address) pushText(appState.settings.address);
+      if (appState.settings.phone) pushText('Telp: ' + appState.settings.phone);
+      pushText(lineDivider);
+
+      // Left Align Metadata: ESC a 0
+      pushBytes(0x1B, 0x61, 0x00);
+      pushText(`No   : ${tx.id}`);
+      pushText(`Tgl  : ${tx.dateStr} ${tx.timeStr}`);
+      pushText(`Plg  : ${tx.customer} (${tx.orderType === 'Bungkus / Takeaway' ? 'Bungkus' : 'Dine-in'})`);
+      pushText(lineDivider);
+
+      // Items
+      tx.items.forEach(item => {
+        pushText(item.name);
+        const qtyPrice = `${item.qty} x ${item.price.toLocaleString('id-ID')}`;
+        const sub = (item.qty * item.price).toLocaleString('id-ID');
+        pushText(formatRow(qtyPrice, sub));
+        if (item.note) {
+          pushText(`  *${item.note}`);
+        }
+      });
+
+      pushText(lineDivider);
+
+      // Totals (Bold)
+      pushBytes(0x1B, 0x45, 0x01);
+      pushText(formatRow('TOTAL', 'Rp ' + tx.total.toLocaleString('id-ID')));
+      pushBytes(0x1B, 0x45, 0x00);
+
+      pushText(formatRow(`Bayar (${tx.paymentMethod})`, 'Rp ' + tx.cashReceived.toLocaleString('id-ID')));
+      if (tx.paymentMethod === 'Tunai') {
+        pushText(formatRow('Kembali', 'Rp ' + tx.change.toLocaleString('id-ID')));
+      }
+      if (tx.note) {
+        pushText(`Catatan: ${tx.note}`);
+      }
+
+      pushText(lineDivider);
+
+      // Center Footer
+      pushBytes(0x1B, 0x61, 0x01);
+      pushText(appState.settings.footer || 'Terima kasih!');
+      pushText('');
+      pushText('');
+      pushText('');
+
+      // Cut paper command (if supported by printer): GS V 66 0
+      pushBytes(0x1D, 0x56, 0x42, 0x00);
+
+      // Concatenate all Uint8Arrays
+      const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
+      const result = new Uint8Array(totalLen);
+      let offset = 0;
+      for (const c of chunks) {
+        result.set(c, offset);
+        offset += c.length;
+      }
+      return result;
+    }
+
+    async function sendBytesToPrinter(dataBytes) {
+      if (!appState.btCharacteristic) {
+        showToast('Printer Bluetooth belum terhubung. Menghubungkan...', 'info');
+        await connectBluetoothPrinter();
+        if (!appState.btCharacteristic) return false;
+      }
+
+      try {
+        // Send in chunks of 100 bytes to prevent BLE buffer overflow on portable printers
+        const CHUNK_SIZE = 100;
+        for (let i = 0; i < dataBytes.length; i += CHUNK_SIZE) {
+          const slice = dataBytes.slice(i, i + CHUNK_SIZE);
+          if (appState.btCharacteristic.properties.writeWithoutResponse) {
+            await appState.btCharacteristic.writeValueWithoutResponse(slice);
+          } else {
+            await appState.btCharacteristic.writeValue(slice);
+          }
+          await new Promise(r => setTimeout(r, 25));
+        }
+        showToast('Struk berhasil dikirim ke printer thermal!', 'success');
+        return true;
+      } catch (err) {
+        console.error('Print error:', err);
+        showToast('Gagal mencetak ke printer: ' + err.message, 'error');
+        return false;
+      }
+    }
+
+    function openReceiptModal(tx) {
+      appState.activeReceiptTx = tx;
+      const area = document.getElementById('printable-receipt-area');
+
+      const itemsHtml = tx.items.map(item => `
+        <div class="mb-1.5">
+          <div class="font-semibold">${item.name}</div>
+          <div class="flex justify-between text-[10px]">
+            <span>${item.qty} x ${item.price.toLocaleString('id-ID')}</span>
+            <span class="font-semibold">${(item.qty * item.price).toLocaleString('id-ID')}</span>
+          </div>
+          ${item.note ? `<div class="text-[10px] italic text-slate-600">* ${item.note}</div>` : ''}
+        </div>
+      `).join('');
+
+      area.innerHTML = `
+        <div class="text-center border-b border-dashed border-slate-400 pb-2 mb-2">
+          <div class="font-bold text-sm uppercase tracking-tight">${appState.settings.storeName}</div>
+          ${appState.settings.address ? `<div class="text-[10px] text-slate-600">${appState.settings.address}</div>` : ''}
+          ${appState.settings.phone ? `<div class="text-[10px] text-slate-600">Telp: ${appState.settings.phone}</div>` : ''}
+        </div>
+        <div class="text-[10px] border-b border-dashed border-slate-400 pb-2 mb-2 space-y-0.5">
+          <div class="flex justify-between"><span>No:</span><span>${tx.id}</span></div>
+          <div class="flex justify-between"><span>Waktu:</span><span>${tx.dateStr} ${tx.timeStr}</span></div>
+          <div class="flex justify-between"><span>Pelanggan:</span><span>${tx.customer}</span></div>
+          <div class="flex justify-between"><span>Tipe:</span><span>${tx.orderType}</span></div>
+        </div>
+        <div class="border-b border-dashed border-slate-400 pb-2 mb-2">
+          ${itemsHtml}
+        </div>
+        <div class="space-y-1 border-b border-dashed border-slate-400 pb-2 mb-2">
+          <div class="flex justify-between font-bold text-xs">
+            <span>TOTAL</span>
+            <span>${formatRupiah(tx.total)}</span>
+          </div>
+          <div class="flex justify-between text-[10px]">
+            <span>Bayar (${tx.paymentMethod})</span>
+            <span>${formatRupiah(tx.cashReceived)}</span>
+          </div>
+          ${tx.paymentMethod === 'Tunai' ? `
+          <div class="flex justify-between text-[10px] font-semibold">
+            <span>Kembali</span>
+            <span>${formatRupiah(tx.change)}</span>
+          </div>` : ''}
+          ${tx.note ? `<div class="text-[10px] pt-1">Catatan: ${tx.note}</div>` : ''}
+        </div>
+        <div class="text-center text-[10px] text-slate-600 pt-1">
+          ${appState.settings.footer}
+        </div>
+      `;
+
+      const modal = document.getElementById('receipt-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      lucide.createIcons();
+    }
+
+    function closeReceiptModal() {
+      const modal = document.getElementById('receipt-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    async function printActiveReceiptBluetooth() {
+      if (!appState.activeReceiptTx) return;
+      const bytes = buildEscPosReceipt(appState.activeReceiptTx);
+      await sendBytesToPrinter(bytes);
+    }
+
+    async function testPrintThermal() {
+      const dummyTx = {
+        id: 'TES-PRINT-001',
+        dateStr: getLocalDateString(new Date()),
+        timeStr: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        customer: 'Tes Printer',
+        orderType: 'Makan di Tempat',
+        note: 'Koneksi Bluetooth Berhasil!',
+        items: [
+          { name: 'Nasi Goreng Spesial', qty: 1, price: 18000, note: 'Sedang' },
+          { name: 'Es Teh Manis', qty: 1, price: 4000, note: '' }
+        ],
+        total: 22000,
+        paymentMethod: 'Tunai',
+        cashReceived: 25000,
+        change: 3000
+      };
+      openReceiptModal(dummyTx);
+    }
+
+    // =========================================================================
+    // 9. REALTIME RECAP, HISTORY & CSV EXPORT
+    // =========================================================================
+    function setFilterToday() {
+      document.getElementById('filter-date').value = getLocalDateString(new Date());
+      renderRecap();
+    }
+
+    function setFilterAllDates() {
+      document.getElementById('filter-date').value = '';
+      renderRecap();
+    }
+
+    function getFilteredTransactions() {
+      const selectedDate = document.getElementById('filter-date').value;
+      if (!selectedDate) return appState.transactions;
+      return appState.transactions.filter(tx => tx.dateStr === selectedDate);
+    }
+
+    function renderRecap() {
+      const txs = getFilteredTransactions();
+      const selectedDate = document.getElementById('filter-date').value;
+
+      let totalRevenue = 0;
+      let cashTotal = 0;
+      let nonCashTotal = 0;
+      const itemCounter = {};
+
+      txs.forEach(tx => {
+        totalRevenue += tx.total;
+        if (tx.paymentMethod === 'Tunai') cashTotal += tx.total;
+        else nonCashTotal += tx.total;
+
+        tx.items.forEach(it => {
+          itemCounter[it.name] = (itemCounter[it.name] || 0) + it.qty;
+        });
+      });
+
+      // Find top selling item
+      let topItemName = '-';
+      let topItemQty = 0;
+      for (const [name, qty] of Object.entries(itemCounter)) {
+        if (qty > topItemQty) {
+          topItemQty = qty;
+          topItemName = name;
+        }
+      }
+
+      document.getElementById('stat-revenue').textContent = formatRupiah(totalRevenue);
+      document.getElementById('stat-period-label').textContent = selectedDate ? `Tanggal ${selectedDate}` : 'Semua Waktu';
+      document.getElementById('stat-tx-count').textContent = txs.length;
+      document.getElementById('stat-cash-split').textContent = `Tunai: ${formatRupiah(cashTotal)}`;
+      document.getElementById('stat-noncash-split').textContent = `Non-Tunai: ${formatRupiah(nonCashTotal)}`;
+      document.getElementById('stat-top-item').textContent = topItemName;
+      document.getElementById('stat-top-qty').textContent = `${topItemQty} porsi terjual`;
+      document.getElementById('tx-list-count').textContent = `${txs.length} Transaksi`;
+
+      const listEl = document.getElementById('transaction-history-list');
+      if (txs.length === 0) {
+        listEl.innerHTML = `
+          <div class="p-8 text-center text-slate-400">
+            <p class="text-sm font-semibold">Belum ada transaksi pada periode ini</p>
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = txs.map(tx => {
+        const itemsSummary = tx.items.map(i => `${i.qty}x ${i.name}`).join(', ');
+        return `
+          <div class="p-4 hover:bg-slate-50 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="space-y-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-mono text-xs font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">${tx.id}</span>
+                <span class="text-xs text-slate-500">${tx.dateStr} • ${tx.timeStr}</span>
+                <span class="text-[11px] font-bold px-2 py-0.5 rounded-full ${tx.paymentMethod === 'Tunai' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}">${tx.paymentMethod}</span>
+              </div>
+              <p class="text-xs sm:text-sm font-semibold text-slate-800 truncate">${itemsSummary}</p>
+              <p class="text-[11px] text-slate-500">Pelanggan: ${tx.customer} (${tx.orderType})</p>
+            </div>
+            <div class="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+              <span class="font-extrabold text-orange-600 text-sm sm:text-base">${formatRupiah(tx.total)}</span>
+              <div class="flex items-center gap-1.5">
+                <button onclick="reprintTransaction('${tx.id}')" title="Lihat & Cetak Struk" class="p-2 rounded-xl bg-slate-100 hover:bg-orange-100 text-slate-700 hover:text-orange-700 transition">
+                  <i data-lucide="printer" class="w-4 h-4"></i>
+                </button>
+                <button onclick="deleteTransaction('${tx.id}')" title="Hapus Transaksi" class="p-2 rounded-xl bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-600 transition">
+                  <i data-lucide="trash-2" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      lucide.createIcons();
+    }
+
+    function reprintTransaction(txId) {
+      const tx = appState.transactions.find(t => t.id === txId);
+      if (tx) openReceiptModal(tx);
+    }
+
+    async function deleteTransaction(txId) {
+      const ok = await customConfirm('Hapus Transaksi', 'Data transaksi ini akan dihapus permanen dari rekap penjualan. Lanjutkan?');
+      if (!ok) return;
+
+      appState.transactions = appState.transactions.filter(t => t.id !== txId);
+      saveTransactionsToLocal();
+      deleteTransactionFromCloud(txId);
+      renderRecap();
+      showToast('Transaksi berhasil dihapus.', 'info');
+    }
+
+    function exportToCSV() {
+      const txs = getFilteredTransactions();
+      if (txs.length === 0) {
+        showToast('Tidak ada data transaksi untuk diekspor.', 'error');
+        return;
+      }
+
+      const headers = ['No Struk', 'Tanggal', 'Waktu', 'Pelanggan', 'Tipe Order', 'Rincian Item', 'Metode Bayar', 'Total (Rp)'];
+      const rows = txs.map(tx => {
+        const itemsStr = tx.items.map(i => `${i.qty}x ${i.name}`).join('; ');
+        return [
+          tx.id,
+          tx.dateStr,
+          tx.timeStr,
+          `"${tx.customer.replace(/"/g, '""')}"`,
+          `"${tx.orderType}"`,
+          `"${itemsStr.replace(/"/g, '""')}"`,
+          tx.paymentMethod,
+          tx.total
+        ].join(',');
+      });
+
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const dateTag = document.getElementById('filter-date').value || 'Semua';
+      a.href = url;
+      a.download = `Rekap_Penjualan_${appState.settings.storeName.replace(/\s+/g, '_')}_${dateTag}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('File rekap CSV berhasil diunduh!', 'success');
+    }
+
+    // =========================================================================
+    // 10. MENU MANAGEMENT (CRUD)
+    // =========================================================================
+    function renderManageMenu() {
+      const grid = document.getElementById('manage-menu-grid');
+      grid.innerHTML = appState.menus.map(item => `
+        <div class="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="w-12 h-12 rounded-xl bg-orange-50 flex items-center justify-center text-2xl shrink-0">
+              ${item.emoji || '🍽️'}
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="text-[10px] font-bold uppercase text-slate-400">${item.category}</span>
+                <span class="text-[10px] font-bold px-1.5 py-0.2 rounded ${item.available ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}">
+                  ${item.available ? 'Tersedia' : 'Habis'}
+                </span>
+              </div>
+              <h4 class="font-bold text-slate-900 text-sm truncate">${item.name}</h4>
+              <p class="font-extrabold text-orange-600 text-xs">${formatRupiah(item.price)}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-1 shrink-0">
+            <button onclick="openMenuModal('${item.id}')" class="p-2 rounded-xl bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-700 transition">
+              <i data-lucide="edit-3" class="w-4 h-4"></i>
+            </button>
+            <button onclick="deleteMenuItem('${item.id}')" class="p-2 rounded-xl bg-slate-100 hover:bg-red-100 text-slate-500 hover:text-red-600 transition">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      `).join('');
+      lucide.createIcons();
+    }
+
+    function openMenuModal(menuId = null) {
+      const modal = document.getElementById('menu-modal');
+      if (menuId) {
+        const item = appState.menus.find(m => m.id === menuId);
+        if (!item) return;
+        document.getElementById('menu-modal-title').textContent = 'Edit Menu';
+        document.getElementById('edit-menu-id').value = item.id;
+        document.getElementById('menu-name-input').value = item.name;
+        document.getElementById('menu-price-input').value = item.price;
+        document.getElementById('menu-cat-input').value = item.category;
+        document.getElementById('menu-emoji-input').value = item.emoji || '🍽️';
+        document.getElementById('menu-avail-input').checked = item.available;
+      } else {
+        document.getElementById('menu-modal-title').textContent = 'Tambah Menu Baru';
+        document.getElementById('edit-menu-id').value = '';
+        document.getElementById('menu-name-input').value = '';
+        document.getElementById('menu-price-input').value = '';
+        document.getElementById('menu-cat-input').value = 'Makanan';
+        document.getElementById('menu-emoji-input').value = '🍛';
+        document.getElementById('menu-avail-input').checked = true;
+      }
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeMenuModal() {
+      const modal = document.getElementById('menu-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function saveMenuItem(e) {
+      e.preventDefault();
+      const id = document.getElementById('edit-menu-id').value;
+      const name = document.getElementById('menu-name-input').value.trim();
+      const price = Number(document.getElementById('menu-price-input').value);
+      const category = document.getElementById('menu-cat-input').value;
+      const emoji = document.getElementById('menu-emoji-input').value.trim() || '🍽️';
+      const available = document.getElementById('menu-avail-input').checked;
+
+      if (id) {
+        const idx = appState.menus.findIndex(m => m.id === id);
+        if (idx !== -1) {
+          appState.menus[idx] = { ...appState.menus[idx], name, price, category, emoji, available };
+        }
+        showToast('Menu berhasil diperbarui!', 'success');
+      } else {
+        appState.menus.push({
+          id: 'm_' + Date.now(),
+          name,
+          price,
+          category,
+          emoji,
+          available
+        });
+        showToast('Menu baru berhasil ditambahkan!', 'success');
+      }
+
+      saveMenusToLocal();
+      renderMenuGrid();
+      renderManageMenu();
+      closeMenuModal();
+    }
+
+    async function deleteMenuItem(menuId) {
+      const ok = await customConfirm('Hapus Menu', 'Yakin ingin menghapus menu ini dari daftar?');
+      if (!ok) return;
+      appState.menus = appState.menus.filter(m => m.id !== menuId);
+      saveMenusToLocal();
+      renderMenuGrid();
+      renderManageMenu();
+      showToast('Menu dihapus.', 'info');
+    }
+
+    // =========================================================================
+    // 11. STORE SETTINGS
+    // =========================================================================
+    function applySettingsToUI() {
+      document.getElementById('header-store-name').textContent = appState.settings.storeName;
+      document.getElementById('set-store-name').value = appState.settings.storeName;
+      document.getElementById('set-store-address').value = appState.settings.address;
+      document.getElementById('set-store-phone').value = appState.settings.phone;
+      document.getElementById('set-store-footer').value = appState.settings.footer;
+      document.getElementById('set-printer-width').value = appState.settings.printerWidth;
+    }
+
+    function saveStoreSettings(e) {
+      e.preventDefault();
+      appState.settings = {
+        storeName: document.getElementById('set-store-name').value.trim() || DEFAULT_SETTINGS.storeName,
+        address: document.getElementById('set-store-address').value.trim(),
+        phone: document.getElementById('set-store-phone').value.trim(),
+        footer: document.getElementById('set-store-footer').value.trim(),
+        printerWidth: Number(document.getElementById('set-printer-width').value) || 32
+      };
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(appState.settings));
+      applySettingsToUI();
+      showToast('Pengaturan warung berhasil disimpan!', 'success');
+    }
+
+    // Boot Application on Window Load
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+</html>
